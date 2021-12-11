@@ -1,7 +1,3 @@
-//
-// Created by krzysztof on 10.12.2021.
-//
-
 #ifndef HTTP_PROXY_HEADER_H
 #define HTTP_PROXY_HEADER_H
 
@@ -10,6 +6,7 @@
 
 class Header {
 public:
+    Header(std::string header, std::string value);
     std::string header;
     std::string value;
 };

@@ -3,3 +3,10 @@
 //
 
 #include "Header.h"
+
+#include <utility>
+
+Header::Header(std::string header, std::string value) {
+    this->header = std::move(header);
+    this->value = std::move(value);
+}

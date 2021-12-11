@@ -8,7 +8,7 @@
 
 #include "HTTP.h"
 
-class HTTPRequest : HTTP {
+class HTTPRequest : public HTTP {
     public:
 //        enum methods {CONNECT, DELETE, GET, HEAD, OPTIONS, POST, PUT, TRACE};
 //        methods method;

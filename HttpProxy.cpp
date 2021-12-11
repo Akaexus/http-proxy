@@ -43,8 +43,6 @@ void HttpProxy::run() {
     this->sockets[0].fd = this->main_socket;
     this->sockets[0].events = POLLIN;
 
-
-
     while (this->loop) {
         int poller = poll(this->sockets, MAX_CONNECTIONS, -1);
         if (poller == 0) {
@@ -65,9 +63,21 @@ void HttpProxy::run() {
                 ssize_t bytes_read = read(event.fd, buf, BUF_SIZE);
                 if (bytes_read > 0) {
                     this->connections[event.fd].parser.read(std::string(buf, bytes_read));
-                    printf("Read %zd bytes from socket %d at poll slot %d\n", bytes_read, event.fd,
-                           this->connections[event.fd].poll_slot);
-                    printf("%s\n", buf);
+                    if (this->connections[event.fd].parser.requestsToHandle.size() > 0) {
+                        for (auto& req : this->connections[event.fd].parser.requestsToHandle) {
+                            printf("ZAPYTANIE:\n");
+                            printf("%s\n", req->method.c_str());
+                            printf("%s\n", req->path.c_str());
+                            printf("%s\n", req->version.c_str());
+                            for (auto & h: req->headers) {
+                                printf("HEADER: %s: %s\n", h.header.c_str(), h.value.c_str());
+                            }
+                            if (req->data.size()) {
+                                printf("DATA ");
+                                printf("%s\n", req->data.c_str());
+                            }
+                        }
+                    }
                 }
             }
         }
