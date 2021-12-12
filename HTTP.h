@@ -9,12 +9,12 @@
 
 class HTTP {
     public:
-        enum Type {Request, Response, NA};
-        std::vector<Header> headers;
-        std::string data;
-        void addHeader(const std::string& header, const std::string& value);
+        std::vector<Header*> headers;
+        void addHeader(const std::string header, const std::string value);
         Header* getHeader(std::string headerName);
-        unsigned long contentLength();
+    unsigned long contentLength();
+        std::string data;
+        std::string version;
         std::string body;
 //    protected:
         static std::string tolower(std::string in);

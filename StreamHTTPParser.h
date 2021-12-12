@@ -10,13 +10,12 @@ class StreamHTTPParser {
 
 public:
     StreamHTTPParser();
-    explicit StreamHTTPParser(HTTP::Type type);
     HTTPRequest* req = nullptr;
-    HTTP::Type type;
     std::string buf;
     std::string tokenBuf;
     HTTPRequest* read(const std::string string);
     std::vector<HTTPRequest*> requestsToHandle;
+    ~StreamHTTPParser();
 
 protected:
     bool gotMethod = false;

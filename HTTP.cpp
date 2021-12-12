@@ -3,8 +3,9 @@
 #include <iostream>
 #include "HTTP.h"
 
-void HTTP::addHeader(const std::string& header, const std::string& value) {
-    this->headers.emplace_back(header, value);
+void HTTP::addHeader(const std::string header, const std::string value) {
+    auto *h = new Header(header, value);
+    this->headers.push_back(h);
 }
 
 unsigned long HTTP::contentLength() {
@@ -24,9 +25,9 @@ unsigned long HTTP::contentLength() {
 
 Header* HTTP::getHeader(std::string headerName) {
     headerName = HTTP::tolower(headerName);
-    for (Header & h : this->headers) {
-        if (HTTP::tolower(h.header) == headerName) {
-            return &h;
+    for (Header *h : this->headers) {
+        if (HTTP::tolower(h->header) == headerName) {
+            return h;
         }
     }
     return nullptr;

@@ -4,7 +4,6 @@
 
 
 HTTPRequest* StreamHTTPParser::read(const std::string string) {
-
     this->buf += string;
     while (!buf.empty()) {
         char current = buf[0];
@@ -61,12 +60,10 @@ HTTPRequest* StreamHTTPParser::read(const std::string string) {
     return nullptr;
 }
 
-StreamHTTPParser::StreamHTTPParser(HTTP::Type type) {
-    this->type = type;
+StreamHTTPParser::StreamHTTPParser() {
     this->req = new HTTPRequest();
-}
-
-StreamHTTPParser::StreamHTTPParser() = default;
+    printf("StreamHTTPParser init\n");
+};
 
 HTTPRequest* StreamHTTPParser::produceRequest() {
     this->requestsToHandle.push_back(this->req);
@@ -81,4 +78,11 @@ HTTPRequest* StreamHTTPParser::produceRequest() {
     this->gotBody = false;
     this->contentLength = 0;
     return request;
+}
+
+StreamHTTPParser::~StreamHTTPParser() {
+    delete this->req;
+    for(HTTPRequest* r : this->requestsToHandle) {
+        delete r;
+    }
 }

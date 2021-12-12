@@ -1,7 +1,3 @@
-//
-// Created by krzysztof on 10.12.2021.
-//
-
 #ifndef HTTP_PROXY_HTTPREQUEST_H
 #define HTTP_PROXY_HTTPREQUEST_H
 
@@ -14,7 +10,6 @@ class HTTPRequest : public HTTP {
 //        methods method;
         std::string method;
         std::string path;
-        std::string version;
 };
 
 
