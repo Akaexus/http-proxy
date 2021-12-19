@@ -9,10 +9,14 @@
 #include <string>
 #include "StreamHTTPParser.h"
 #include "HttpProxy.h"
+#include <sys/signalfd.h>
+#include <csignal>
 
 
 
 HttpProxy::HttpProxy(unsigned int bind_address, int port) {
+
+    // setup main socket
     this->main_socket = socket(AF_INET, SOCK_STREAM, 0);
 
     int one = 1;
@@ -37,6 +41,15 @@ HttpProxy::HttpProxy(unsigned int bind_address, int port) {
         socket.fd = -1;
         socket.events = 0;
     }
+
+    // setup signal handling
+    sigset_t sigset;
+    sigemptyset(&sigset);
+    sigaddset(&sigset, SIGTERM);
+    sigprocmask(SIG_SETMASK, &sigset, NULL);
+
+    this->sfd = signalfd(-1, &sigset, 0);
+
 }
 
 void HttpProxy::run() {
@@ -60,9 +73,14 @@ void HttpProxy::run() {
     this->cache.emplace_back(r, "http://ipinfo.io/", 0);
 
 
-
-    this->sockets[0].fd = this->main_socket;
+    // signal fd
+    this->sockets[0].fd = this->sfd;
     this->sockets[0].events = POLLIN;
+
+
+    // main socket
+    this->sockets[1].fd = this->main_socket;
+    this->sockets[1].events = POLLIN;
 
     while (this->loop) {
         int poller = poll(this->sockets, MAX_CONNECTIONS, -1);
@@ -71,8 +89,6 @@ void HttpProxy::run() {
         }
 
         for (pollfd &event: this->sockets) {
-//            printf("sock %d, events %d, revents %d\n", event.fd, event.events, event.revents);
-            // accept new connections
             if (event.fd == this->main_socket && event.revents & POLLIN) {
                 int emptySlot = this->getEmptyPollSlot();
                 if (emptySlot >= 0) {
@@ -80,15 +96,13 @@ void HttpProxy::run() {
                 }
             }
             // READ FROM CLIENT CONNECTIONS
-            if (event.fd != this->main_socket && event.revents & POLLIN) {
-                printf("pollin\n");
+            if (event.fd != this->main_socket && event.fd != this->sfd && event.revents & POLLIN) {
                 char buf[BUF_SIZE] = {0};
                 ssize_t bytes_read = read(event.fd, buf, BUF_SIZE);
 
                 if (bytes_read > 0) {
                     HttpProxy::connection *clientConnection = this->connections[event.fd];
                     clientConnection->parser->read(std::string(buf, bytes_read));
-                    printf("read\n");
                     // handle next client request
                     if (!clientConnection->parser->requestsToHandle.empty() && clientConnection->status == HANDLED) {
                         delete clientConnection->requestToHandle; // delete old request
@@ -97,30 +111,16 @@ void HttpProxy::run() {
 
                         clientConnection->res = queryCache(clientConnection->requestToHandle);
                         clientConnection->status = READY_TO_SEND_RESPONSE;
-                        for (auto& req : clientConnection->parser->requestsToHandle) {
-                            printf("ZAPYTANIE:\n");
-                            printf("%s\n", req->method.c_str());
-                            printf("%s\n", req->path.c_str());
-                            printf("%s\n", req->version.c_str());
-                            for (auto h: req->headers) {
-                                printf("HEADER: %s: %s\n", h->header.c_str(), h->value.c_str());
-                            }
-                            if (!req->data.empty()) {
-                                printf("DATA ");
-                                printf("%s\n", req->data.c_str());
-                            }
-                        }
                     }
                 } else {
                     this->closeConnection(event.fd);
                 }
             }
             // SEND TO CLIENT
-            if (event.fd != this->main_socket && event.revents & POLLOUT) {
+            if (event.fd != this->main_socket && event.fd != this->sfd && event.revents & POLLOUT) {
                 if (this->connections.count(event.fd)) {
                     HttpProxy::connection *clientConnection = this->connections[event.fd];
                     if (clientConnection->status == READY_TO_SEND_RESPONSE) {
-                        printf("write\n");
                         std::string response = clientConnection->res->toString();
                         ssize_t bytes_sent = write(clientConnection->socket, response.c_str(), response.size());
                         if (bytes_sent >= (long) response.size()) {
@@ -128,6 +128,12 @@ void HttpProxy::run() {
                         }
                     }
                 }
+            }
+
+            if (this->sockets[0].revents & POLLIN) {
+                printf("SIGNAL\n");
+                this->loop = false;
+                break;
             }
         }
     }
@@ -178,5 +184,8 @@ void HttpProxy::closeConnection(int socket) {
             break;
         }
     }
-    printf("Closed connection for socket %d\n", socket);
+}
+
+void HttpProxy::stop() {
+    this->loop = false;
 }

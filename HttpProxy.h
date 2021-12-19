@@ -8,6 +8,8 @@
 #include "StreamHTTPParser.h"
 #include "HTTPRequest.h"
 #include "HTTPResponse.h"
+#include <unistd.h>
+
 
 #define MAX_CONNECTIONS 10
 #define BUF_SIZE 1024
@@ -16,6 +18,7 @@ class HttpProxy {
     public:
         HttpProxy(unsigned int address, int port);
         void run();
+        void stop();
         int loop = true;
         // HTTP Response cache
         struct cacheEntry {
@@ -70,9 +73,11 @@ class HttpProxy {
 
 protected:
         int main_socket;
+        int sfd; // signal file descriptor
         struct sockaddr_in listen_address;
         pollfd sockets[MAX_CONNECTIONS];
         std::map<int, connection*> connections;
+
 
 
     int getEmptyPollSlot();

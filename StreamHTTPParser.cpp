@@ -62,7 +62,6 @@ HTTPRequest* StreamHTTPParser::read(const std::string string) {
 
 StreamHTTPParser::StreamHTTPParser() {
     this->req = new HTTPRequest();
-    printf("StreamHTTPParser init\n");
 };
 
 HTTPRequest* StreamHTTPParser::produceRequest() {

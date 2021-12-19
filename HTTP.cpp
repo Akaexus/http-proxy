@@ -40,3 +40,9 @@ std::string HTTP::tolower(std::string in) {
     }
     return in;
 }
+
+HTTP::~HTTP() {
+    for (auto header : this->headers) {
+        delete header;
+    }
+}
