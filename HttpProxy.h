@@ -51,35 +51,26 @@ class HttpProxy {
             HTTPRequest* requestToHandle = nullptr;
             HTTPResponse* res = nullptr;
             connectionStatus status = HANDLED;
-            connection(int s, struct sockaddr_in address, int slot) {
-                this->socket = s;
-                this->client = address;
-                this->poll_slot = slot;
-                this->parser = new StreamHTTPParser();
-            }
-            ~connection() {
-                if (this->socket > -1) {
-                    shutdown(this->socket, SHUT_RDWR);
-                    close(socket);
-                }
-                delete this->requestToHandle;
-                if (res != nullptr && !res->inCache) {
-                    delete this->res;
-                }
-                delete this->parser;
-            }
-
+            connection(int s, struct sockaddr_in address, int slot);
+            ~connection();
         };
 
 protected:
-        int main_socket;
-        int sfd; // signal file descriptor
-        struct sockaddr_in listen_address;
-        pollfd sockets[MAX_CONNECTIONS];
-        std::map<int, connection*> connections;
+    int main_socket;
+    int sfd; // signal file descriptor
+    struct sockaddr_in listen_address;
+    pollfd sockets[MAX_CONNECTIONS];
+    std::map<int, connection*> connections;
+    // SETUP PROXY
+    void prepareSignalHandling();
+    void prepareMainSocket(unsigned int bind_address, int port);
 
-
-
+    // HANDLERS
+    void handleIncomingConnection();
+    void handleIncomingData(pollfd event);
+    void handleOutgoingData(pollfd event);
+    void handleSignal(pollfd event);
+    // UTILITIES
     int getEmptyPollSlot();
     void registerNewConnection(int pollSlot);
     void closeConnection(int socket);
