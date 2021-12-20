@@ -12,6 +12,15 @@
 #include <sys/signalfd.h>
 #include <csignal>
 
+HttpProxy::cacheEntry::cacheEntry(HTTPResponse* r, std::string p, long e) {
+    this->res = r;
+    this->path = std::move(p);
+    this->expireAt = e;
+}
+
+HttpProxy::cacheEntry::~cacheEntry() {
+    delete this->res;
+}
 
 HttpProxy::connection::connection(int s, struct sockaddr_in address, int slot) {
     this->socket = s;
@@ -134,6 +143,7 @@ void HttpProxy::closeConnection(int socket) {
 
 void HttpProxy::stop() {
     this->loop = false;
+    printf("Shutting down...\n");
 }
 
 void HttpProxy::prepareSignalHandling() {
@@ -235,6 +245,14 @@ void HttpProxy::handleSignal(pollfd event) {
         printf("Error reading signal!\n");
         return;
     }
-    printf("SIGNAL %d\n", siginfo.ssi_signo);
     this->stop();
+}
+
+HttpProxy::~HttpProxy() {
+    close(this->main_socket);
+    close(this->sfd);
+    for (auto const& [key, connection] : this->connections) {
+        shutdown(connection->socket, SHUT_RDWR);
+        close(connection->socket);
+    }
 }

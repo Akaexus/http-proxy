@@ -17,6 +17,7 @@
 class HttpProxy {
     public:
         HttpProxy(unsigned int address, int port);
+        ~HttpProxy();
         void run();
         void stop();
         int loop = true;
@@ -25,14 +26,8 @@ class HttpProxy {
             HTTPResponse* res;
             std::string path;
             long expireAt;
-            cacheEntry(HTTPResponse* r, std::string p, long e) {
-                this->res = r;
-                this->path = std::move(p);
-                this->expireAt = e;
-            }
-            ~cacheEntry() {
-                delete this->res;
-            }
+            cacheEntry(HTTPResponse* r, std::string p, long e);
+            ~cacheEntry();
         };
         std::vector<cacheEntry> cache;
 

@@ -17,7 +17,7 @@ HTTPRequest* StreamHTTPParser::read(const std::string string) {
             this->req->path = tokenBuf;
             tokenBuf = "";
             this->gotPath = true;
-        } else if (!this->gotHTTPVersion && tokenBuf.back() == '\r' && current == '\n') { // HTTP VERSION
+        } else if (!this->gotHTTPVersion && !tokenBuf.empty() && tokenBuf.back() == '\r' && current == '\n') { // HTTP VERSION
             tokenBuf.pop_back();
             this->req->version = tokenBuf;
             this->gotHTTPVersion = true;
@@ -30,7 +30,7 @@ HTTPRequest* StreamHTTPParser::read(const std::string string) {
             } else {
                 this->produceRequest();
             }
-        } else if (!this->gotAllHeaders && tokenBuf.back() == '\r' && current == '\n') { // header
+        } else if (!this->gotAllHeaders && !tokenBuf.empty() && tokenBuf.back() == '\r' && current == '\n') { // header
             tokenBuf.pop_back();
             bool toValue = false;
             std::string header, value;
