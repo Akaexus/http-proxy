@@ -5,9 +5,10 @@
 #include <sys/poll.h>
 #include <map>
 #include <utility>
-#include "StreamHTTPParser.h"
-#include "HTTPRequest.h"
-#include "HTTPResponse.h"
+#include "HTTP/StreamHTTPParser.h"
+#include "HTTP/HTTPRequest.h"
+#include "HTTP/HTTPResponse.h"
+#include "Connection.h"
 #include <unistd.h>
 
 
@@ -33,29 +34,13 @@ class HttpProxy {
 
         HTTPResponse* queryCache(HTTPRequest* req);
 
-        // CLIENT CONNECTIONS
-        enum connectionStatus {
-            HANDLED,
-            READY_TO_SEND_RESPONSE,
-        };
-        struct connection {
-            int socket = -1;
-            StreamHTTPParser *parser;
-            struct sockaddr_in client{};
-            int poll_slot;
-            HTTPRequest* requestToHandle = nullptr;
-            HTTPResponse* res = nullptr;
-            connectionStatus status = HANDLED;
-            connection(int s, struct sockaddr_in address, int slot);
-            ~connection();
-        };
 
 protected:
     int main_socket;
     int sfd; // signal file descriptor
     struct sockaddr_in listen_address;
     pollfd sockets[MAX_CONNECTIONS];
-    std::map<int, connection*> connections;
+    std::map<int, Connection*> connections;
     // SETUP PROXY
     void prepareSignalHandling();
     void prepareMainSocket(unsigned int bind_address, int port);

@@ -7,7 +7,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <string>
-#include "StreamHTTPParser.h"
+#include "HTTP/StreamHTTPParser.h"
 #include "HttpProxy.h"
 #include <sys/signalfd.h>
 #include <csignal>
@@ -20,25 +20,6 @@ HttpProxy::cacheEntry::cacheEntry(HTTPResponse* r, std::string p, long e) {
 
 HttpProxy::cacheEntry::~cacheEntry() {
     delete this->res;
-}
-
-HttpProxy::connection::connection(int s, struct sockaddr_in address, int slot) {
-    this->socket = s;
-    this->client = address;
-    this->poll_slot = slot;
-    this->parser = new StreamHTTPParser();
-}
-
-HttpProxy::connection::~connection() {
-    if (this->socket > -1) {
-        shutdown(this->socket, SHUT_RDWR);
-        close(socket);
-    }
-    delete this->requestToHandle;
-    if (res != nullptr && !res->inCache) {
-        delete this->res;
-    }
-    delete this->parser;
 }
 
 HttpProxy::HttpProxy(unsigned int bind_address, int port) {
@@ -108,7 +89,7 @@ void HttpProxy::registerNewConnection(int pollSlot) {
     socklen_t size = sizeof(client);
     int con = accept(this->main_socket, (struct sockaddr *) &client, &size);
 
-    this->connections[con] = new HttpProxy::connection(
+    this->connections[con] = new Connection(
             con,
             client,
             pollSlot
@@ -210,16 +191,16 @@ void HttpProxy::handleIncomingData(pollfd event) {
     ssize_t bytes_read = read(event.fd, buf, BUF_SIZE);
 
     if (bytes_read > 0) {
-        HttpProxy::connection *clientConnection = this->connections[event.fd];
+        Connection *clientConnection = this->connections[event.fd];
         clientConnection->parser->read(std::string(buf, bytes_read));
         // handle next client request
-        if (!clientConnection->parser->requestsToHandle.empty() && clientConnection->status == HANDLED) {
+        if (!clientConnection->parser->requestsToHandle.empty() && clientConnection->status == Connection::HANDLED) {
             delete clientConnection->requestToHandle; // delete old request
             clientConnection->requestToHandle = clientConnection->parser->requestsToHandle[0]; // TODO: use something faster
             clientConnection->parser->requestsToHandle.erase(clientConnection->parser->requestsToHandle.begin());
 
             clientConnection->res = queryCache(clientConnection->requestToHandle);
-            clientConnection->status = READY_TO_SEND_RESPONSE;
+            clientConnection->status = Connection::READY_TO_SEND_RESPONSE;
         }
     } else {
         this->closeConnection(event.fd);
@@ -228,12 +209,12 @@ void HttpProxy::handleIncomingData(pollfd event) {
 
 void HttpProxy::handleOutgoingData(pollfd event) {
     if (this->connections.count(event.fd)) {
-        HttpProxy::connection *clientConnection = this->connections[event.fd];
-        if (clientConnection->status == READY_TO_SEND_RESPONSE) {
+        Connection *clientConnection = this->connections[event.fd];
+        if (clientConnection->status == Connection::READY_TO_SEND_RESPONSE) {
             std::string response = clientConnection->res->toString();
             ssize_t bytes_sent = write(clientConnection->socket, response.c_str(), response.size());
             if (bytes_sent >= (long) response.size()) {
-                clientConnection->status = HANDLED;
+                clientConnection->status = Connection::HANDLED;
             }
         }
     }
