@@ -1,9 +1,9 @@
 #include <cstdio>
-#include "StreamHTTPParser.h"
+#include "StreamHTTPRequestParser.h"
 
 
 
-HTTPRequest* StreamHTTPParser::read(const std::string string) {
+HTTPRequest* StreamHTTPRequestParser::read(const std::string string) {
     this->buf += string;
     while (!buf.empty()) {
         char current = buf[0];
@@ -60,12 +60,12 @@ HTTPRequest* StreamHTTPParser::read(const std::string string) {
     return nullptr;
 }
 
-StreamHTTPParser::StreamHTTPParser() {
+StreamHTTPRequestParser::StreamHTTPRequestParser() {
     this->req = new HTTPRequest();
 };
 
-HTTPRequest* StreamHTTPParser::produceRequest() {
-    this->requestsToHandle.push_back(this->req);
+HTTPRequest* StreamHTTPRequestParser::produceRequest() {
+    this->entitiesToHandle.push_back(this->req);
     HTTPRequest* request = this->req;
     this->req = new HTTPRequest();
     this->tokenBuf = "";
@@ -79,9 +79,6 @@ HTTPRequest* StreamHTTPParser::produceRequest() {
     return request;
 }
 
-StreamHTTPParser::~StreamHTTPParser() {
+StreamHTTPRequestParser::~StreamHTTPRequestParser() {
     delete this->req;
-    for(HTTPRequest* r : this->requestsToHandle) {
-        delete r;
-    }
 }

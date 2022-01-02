@@ -10,6 +10,7 @@ class HTTPRequest : public HTTP {
 //        methods method;
         std::string method;
         std::string path;
+        std::string toString() override;
 };
 
 

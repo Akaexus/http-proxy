@@ -7,10 +7,15 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <string>
-#include "HTTP/StreamHTTPParser.h"
+#include "HTTP/StreamHTTPRequestParser.h"
 #include "HttpProxy.h"
 #include <sys/signalfd.h>
 #include <csignal>
+#include <ctime>
+#include <netdb.h>
+#include "URI/URI.h"
+#include <error.h>
+
 
 HttpProxy::cacheEntry::cacheEntry(HTTPResponse* r, std::string p, long e) {
     this->res = r;
@@ -27,28 +32,28 @@ HttpProxy::HttpProxy(unsigned int bind_address, int port) {
     this->prepareSignalHandling();
 
 
-    auto* r = new HTTPResponse();
-    r->version = "HTTP/1.1";
-    r->statusCode = 200;
-    r->statusText = "OK";
-    r->addHeader("access-control-allow-origin", "*");
-    r->addHeader("x-frame-options", "SAMEORIGIN");
-    r->addHeader("x-xss-protection", "1; mode=block");
-    r->addHeader("x-content-type-options", "nosniff");
-    r->addHeader("referrer-policy", "strict-origin-when-cross-origin");
-    r->addHeader("content-type", "application/json; charset=utf-8");
-    r->addHeader("content-length", "4");
-    r->addHeader("date", "Sun, 12 Dec 2021 15:19:58 GMT");
-    r->addHeader("x-envoy-upstream-service-time", "2");
-    r->addHeader("vary", "Accept-Encoding");
-    r->addHeader("Via", "1.1 google");
-    r->data = "abcd";
-    r->inCache = true;
-    this->cache.emplace_back(r, "http://ipinfo.io/", 0);
+//    auto* r = new HTTPResponse();
+//    r->version = "HTTP/1.1";
+//    r->statusCode = 200;
+//    r->statusText = "OK";
+//    r->addHeader("access-control-allow-origin", "*");
+//    r->addHeader("x-frame-options", "SAMEORIGIN");
+//    r->addHeader("x-xss-protection", "1; mode=block");
+//    r->addHeader("x-content-type-options", "nosniff");
+//    r->addHeader("referrer-policy", "strict-origin-when-cross-origin");
+//    r->addHeader("content-type", "application/json; charset=utf-8");
+//    r->addHeader("content-length", "4");
+//    r->addHeader("date", "Sun, 12 Dec 2021 15:19:58 GMT");
+//    r->addHeader("x-envoy-upstream-service-time", "2");
+//    r->addHeader("vary", "Accept-Encoding");
+//    r->addHeader("Via", "1.1 google");
+//    r->data = "abcd";
+//    r->inCache = true;
+//    this->cache.emplace_back(r, "http://ipinfo.io/", 0);
 }
 
 void HttpProxy::run() {
-        while (this->loop) {
+    while (this->loop) {
         int poller = poll(this->sockets, MAX_CONNECTIONS, -1);
         if (poller == 0) {
             perror("Cannot poll");
@@ -89,16 +94,18 @@ void HttpProxy::registerNewConnection(int pollSlot) {
     socklen_t size = sizeof(client);
     int con = accept(this->main_socket, (struct sockaddr *) &client, &size);
 
+    this->sockets[pollSlot].fd = con;
+    this->sockets[pollSlot].events = POLLIN;
+
     this->connections[con] = new Connection(
+            Connection::SERVER,
             con,
             client,
-            pollSlot
+            &this->sockets[pollSlot]
     );
-    this->sockets[pollSlot].fd = con;
-    this->sockets[pollSlot].events = POLLIN | POLLOUT;
     char addr[255] = {0};
     inet_ntop(AF_INET, &client.sin_addr, addr, sizeof(addr));
-    printf("Accepted new connection from %s:%d at poll slot %d!\n", addr, ntohs(client.sin_port), pollSlot);
+    printf("Accepted new connection from %s:%d at poll slot %d, socket %d!\n", addr, ntohs(client.sin_port), pollSlot, con);
 }
 
 HTTPResponse* HttpProxy::queryCache(HTTPRequest *req) {
@@ -111,6 +118,7 @@ HTTPResponse* HttpProxy::queryCache(HTTPRequest *req) {
 }
 
 void HttpProxy::closeConnection(int socket) {
+    printf("Closing connection at socket %d\n", socket);
     delete this->connections[socket];
     this->connections.erase(socket);
     for (pollfd& cs : this->sockets) {
@@ -189,19 +197,44 @@ void HttpProxy::handleIncomingConnection() {
 void HttpProxy::handleIncomingData(pollfd event) {
     char buf[BUF_SIZE] = {0};
     ssize_t bytes_read = read(event.fd, buf, BUF_SIZE);
-
     if (bytes_read > 0) {
-        Connection *clientConnection = this->connections[event.fd];
-        clientConnection->parser->read(std::string(buf, bytes_read));
-        // handle next client request
-        if (!clientConnection->parser->requestsToHandle.empty() && clientConnection->status == Connection::HANDLED) {
-            delete clientConnection->requestToHandle; // delete old request
-            clientConnection->requestToHandle = clientConnection->parser->requestsToHandle[0]; // TODO: use something faster
-            clientConnection->parser->requestsToHandle.erase(clientConnection->parser->requestsToHandle.begin());
+        Connection *con = this->connections[event.fd];
+        con->parser->read(std::string(buf, bytes_read));
+        // handle next addr request
+        if (con->getType() == Connection::SERVER) {
 
-            clientConnection->res = queryCache(clientConnection->requestToHandle);
-            clientConnection->status = Connection::READY_TO_SEND_RESPONSE;
+            if (!con->parser->entitiesToHandle.empty() && con->getStatus() == Connection::READY_TO_RECV) {
+                if (con->req != nullptr) {
+                    delete con->req; // delete old request
+                }
+                con->req = (HTTPRequest *)con->parser->entitiesToHandle[0];
+                con->parser->entitiesToHandle.erase(con->parser->entitiesToHandle.begin()); // TODO: use something faster
+
+                auto res = queryCache(con->req);
+                if (res == nullptr) {
+                    this->makeHTTPRequest(con);
+                    con->setStatus(Connection::WAITING);
+                } else {
+                    con->res = res;
+                    con->setStatus(Connection::READY_TO_SEND);
+                }
+            }
+        } else if (con->getType() == Connection::CLIENT) { // GOT DATA FROM HOST
+            if (!con->parser->entitiesToHandle.empty()) {
+                delete con->res;
+                con->res = (HTTPResponse*)con->parser->entitiesToHandle[0];
+                con->parser->entitiesToHandle.erase(con->parser->entitiesToHandle.begin()); // TODO: use something faster
+                auto l = this->getListeners(con);
+                for (auto clientConnection : l) {
+                    clientConnection->res = con->res;
+                    clientConnection->observable = con;
+                    clientConnection->setStatus(Connection::READY_TO_SEND);
+                }
+                con->res->inCache = true;
+                this->closeConnection(con->socket);
+            }
         }
+
     } else {
         this->closeConnection(event.fd);
     }
@@ -210,11 +243,29 @@ void HttpProxy::handleIncomingData(pollfd event) {
 void HttpProxy::handleOutgoingData(pollfd event) {
     if (this->connections.count(event.fd)) {
         Connection *clientConnection = this->connections[event.fd];
-        if (clientConnection->status == Connection::READY_TO_SEND_RESPONSE) {
-            std::string response = clientConnection->res->toString();
-            ssize_t bytes_sent = write(clientConnection->socket, response.c_str(), response.size());
-            if (bytes_sent >= (long) response.size()) {
-                clientConnection->status = Connection::HANDLED;
+        if (clientConnection->getStatus() == Connection::READY_TO_SEND) {
+            if (clientConnection->getType() == Connection::CLIENT) {
+                std::string req = clientConnection->req->toString();
+                printf("%s\n", clientConnection->req->path.c_str());
+                ssize_t bytes_sent = write(clientConnection->socket, req.c_str(), req.size());
+                if (bytes_sent >= (long) req.size()) {
+                    clientConnection->setStatus(Connection::READY_TO_RECV);
+                }
+            } else if (clientConnection->getType() == Connection::SERVER) {
+                std::string res = clientConnection->res->toString();
+                ssize_t bytes_sent = write(clientConnection->socket, res.c_str(), res.size());
+                if (bytes_sent >= (long) res.size()) {
+                    if (this->listeners.count(clientConnection->observable)) {
+                        if (this->listeners[clientConnection->observable].size() == 1) {
+                            this->removeListener(clientConnection->observable, clientConnection);
+                            delete clientConnection->res;
+                            clientConnection->res = nullptr;
+                        } else {
+                            this->removeListener(clientConnection->observable, clientConnection);
+                        }
+                    }
+                    clientConnection->setStatus(Connection::READY_TO_RECV);
+                }
             }
         }
     }
@@ -236,4 +287,65 @@ HttpProxy::~HttpProxy() {
         shutdown(connection->socket, SHUT_RDWR);
         close(connection->socket);
     }
+}
+
+void HttpProxy::makeHTTPRequest(Connection *clientConnection) {
+
+    // GET IP ADDRESS OF HOST
+    URI uri = URI::Parse(clientConnection->req->path);
+    addrinfo hints{};
+    hints.ai_family = AF_INET;
+    hints.ai_protocol = IPPROTO_TCP;
+    hints.ai_flags = AI_V4MAPPED | AI_ADDRCONFIG;
+    addrinfo *resolved;
+
+    int res = getaddrinfo(uri.Host.c_str(), uri.Port.c_str(), &hints, &resolved);
+    if(res) {
+        error(1,0,"Getaddrinfo failed: %s\n", gai_strerror(res));
+    }
+    if(!resolved) {
+        error(1,0,"Empty result\n");
+    }
+    auto* addr = (sockaddr_in*) resolved->ai_addr; // <- rzutowanie bezpieczne,
+
+    // CONNECT TO HOST
+    int con = socket(AF_INET, SOCK_STREAM, 0);
+    int flag = connect(con, (sockaddr*)addr, sizeof(*addr));
+    if (flag) {
+        perror("Connect to host");
+    }
+
+    int pollSlot = this->getEmptyPollSlot();
+    this->sockets[pollSlot].fd = con;
+    this->sockets[pollSlot].events = POLLOUT;
+    this->connections[con] = new Connection(
+            Connection::CLIENT,
+            con,
+            *addr,
+            &this->sockets[pollSlot]
+    );
+    this->connections[con]->req = clientConnection->req;
+
+    this->connections[con]->setStatus(Connection::READY_TO_SEND);
+    this->addListener(this->connections[con], clientConnection);
+    freeaddrinfo(resolved);
+}
+
+void HttpProxy::addListener(Connection *observable, Connection *observer) {
+    this->listeners[observable].push_back(observer);
+}
+
+void HttpProxy::removeListener(Connection *observable, Connection *observer) {
+    if (this->listeners.count(observable)) {
+        for (auto it = this->listeners[observable].begin(); it != this->listeners[observable].end(); it++) {
+            if (*it == observer) {
+                this->listeners[observable].erase(it);
+                return;
+            }
+        }
+    }
+}
+
+std::vector<Connection *> HttpProxy::getListeners(Connection *observable) {
+    return this->listeners[observable];
 }

@@ -5,14 +5,15 @@
 #include <sys/poll.h>
 #include <map>
 #include <utility>
-#include "HTTP/StreamHTTPParser.h"
+#include "HTTP/StreamHTTPRequestParser.h"
 #include "HTTP/HTTPRequest.h"
 #include "HTTP/HTTPResponse.h"
 #include "Connection.h"
 #include <unistd.h>
+#include <ctime>
 
 
-#define MAX_CONNECTIONS 10
+#define MAX_CONNECTIONS 100000
 #define BUF_SIZE 1024
 
 class HttpProxy {
@@ -26,12 +27,11 @@ class HttpProxy {
         struct cacheEntry {
             HTTPResponse* res;
             std::string path;
-            long expireAt;
+            time_t expireAt;
             cacheEntry(HTTPResponse* r, std::string p, long e);
             ~cacheEntry();
         };
         std::vector<cacheEntry> cache;
-
         HTTPResponse* queryCache(HTTPRequest* req);
 
 
@@ -45,6 +45,11 @@ protected:
     void prepareSignalHandling();
     void prepareMainSocket(unsigned int bind_address, int port);
 
+    std::map<Connection*, std::vector<Connection*>> listeners;
+    void addListener(Connection* observable, Connection* observer); // observer listens to events on observable
+    std::vector<Connection*> getListeners(Connection* observable);
+    void removeListener(Connection* observable, Connection* observer);
+
     // HANDLERS
     void handleIncomingConnection();
     void handleIncomingData(pollfd event);
@@ -54,6 +59,8 @@ protected:
     int getEmptyPollSlot();
     void registerNewConnection(int pollSlot);
     void closeConnection(int socket);
+
+    void makeHTTPRequest(Connection *pConnection);
 };
 
 

@@ -8,7 +8,7 @@ class HTTPResponse : public HTTP  {
     public:
         unsigned short statusCode{};
         std::string statusText{};
-        std::string toString();
+        std::string toString() override;
         bool inCache = false;
 
 };

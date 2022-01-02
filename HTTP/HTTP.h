@@ -12,7 +12,8 @@ class HTTP {
         std::vector<Header*> headers;
         void addHeader(const std::string header, const std::string value);
         Header* getHeader(std::string headerName);
-        ~HTTP();
+        virtual std::string toString() = 0;
+        virtual ~HTTP();
     unsigned long contentLength();
         std::string data;
         std::string version;
