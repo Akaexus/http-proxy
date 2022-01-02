@@ -13,7 +13,7 @@
 #include <ctime>
 
 
-#define MAX_CONNECTIONS 100000
+#define MAX_CONNECTIONS 1024
 #define BUF_SIZE 1024
 
 class HttpProxy {

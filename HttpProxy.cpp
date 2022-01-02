@@ -30,26 +30,6 @@ HttpProxy::cacheEntry::~cacheEntry() {
 HttpProxy::HttpProxy(unsigned int bind_address, int port) {
     this->prepareMainSocket(bind_address, port);
     this->prepareSignalHandling();
-
-
-//    auto* r = new HTTPResponse();
-//    r->version = "HTTP/1.1";
-//    r->statusCode = 200;
-//    r->statusText = "OK";
-//    r->addHeader("access-control-allow-origin", "*");
-//    r->addHeader("x-frame-options", "SAMEORIGIN");
-//    r->addHeader("x-xss-protection", "1; mode=block");
-//    r->addHeader("x-content-type-options", "nosniff");
-//    r->addHeader("referrer-policy", "strict-origin-when-cross-origin");
-//    r->addHeader("content-type", "application/json; charset=utf-8");
-//    r->addHeader("content-length", "4");
-//    r->addHeader("date", "Sun, 12 Dec 2021 15:19:58 GMT");
-//    r->addHeader("x-envoy-upstream-service-time", "2");
-//    r->addHeader("vary", "Accept-Encoding");
-//    r->addHeader("Via", "1.1 google");
-//    r->data = "abcd";
-//    r->inCache = true;
-//    this->cache.emplace_back(r, "http://ipinfo.io/", 0);
 }
 
 void HttpProxy::run() {
@@ -96,7 +76,6 @@ void HttpProxy::registerNewConnection(int pollSlot) {
 
     this->sockets[pollSlot].fd = con;
     this->sockets[pollSlot].events = POLLIN;
-
     this->connections[con] = new Connection(
             Connection::SERVER,
             con,
@@ -265,6 +244,7 @@ void HttpProxy::handleOutgoingData(pollfd event) {
                         }
                     }
                     clientConnection->setStatus(Connection::READY_TO_RECV);
+                    this->closeConnection(clientConnection->socket);
                 }
             }
         }
