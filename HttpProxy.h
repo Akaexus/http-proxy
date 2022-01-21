@@ -41,9 +41,12 @@ protected:
     struct sockaddr_in listen_address;
     pollfd sockets[MAX_CONNECTIONS];
     std::map<int, Connection*> connections;
+    std::map<int, HTTPResponse*> proxy_responses;
     // SETUP PROXY
     void prepareSignalHandling();
     void prepareMainSocket(unsigned int bind_address, int port);
+    void prepareProxyResponses();
+    void cleanupProxyResponses();
 
     std::map<Connection*, std::vector<Connection*>> listeners;
     void addListener(Connection* observable, Connection* observer); // observer listens to events on observable

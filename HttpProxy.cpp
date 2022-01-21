@@ -11,10 +11,11 @@
 #include "HttpProxy.h"
 #include <sys/signalfd.h>
 #include <csignal>
-#include <ctime>
 #include <netdb.h>
 #include "URI/URI.h"
 #include <error.h>
+#include <sys/types.h>
+
 
 
 HttpProxy::cacheEntry::cacheEntry(HTTPResponse* r, std::string p, long e) {
@@ -30,12 +31,13 @@ HttpProxy::cacheEntry::~cacheEntry() {
 HttpProxy::HttpProxy(unsigned int bind_address, int port) {
     this->prepareMainSocket(bind_address, port);
     this->prepareSignalHandling();
+    this->prepareProxyResponses();
 }
 
 void HttpProxy::run() {
     while (this->loop) {
-        int poller = poll(this->sockets, MAX_CONNECTIONS, -1);
-        if (poller == 0) {
+        int poller = poll(this->sockets, MAX_CONNECTIONS, 10000);
+        if (poller < 0) {
             perror("Cannot poll");
         }
 
@@ -47,6 +49,7 @@ void HttpProxy::run() {
             if (event.fd != this->main_socket && event.fd != this->sfd) {
                 if (event.revents & POLLIN) {
                     this->handleIncomingData(event); // READ FROM CLIENT CONNECTIONS
+
                 } else if (event.revents & POLLOUT) {
                     this->handleOutgoingData(event); // SEND TO CLIENT
                 }
@@ -73,6 +76,7 @@ void HttpProxy::registerNewConnection(int pollSlot) {
     struct sockaddr_in client;
     socklen_t size = sizeof(client);
     int con = accept(this->main_socket, (struct sockaddr *) &client, &size);
+    fcntl(con, F_SETFL, O_NONBLOCK);
 
     this->sockets[pollSlot].fd = con;
     this->sockets[pollSlot].events = POLLIN;
@@ -98,6 +102,9 @@ HTTPResponse* HttpProxy::queryCache(HTTPRequest *req) {
 
 void HttpProxy::closeConnection(int socket) {
     printf("Closing connection at socket %d\n", socket);
+
+//    auto socket_listeners = this->getListeners(this->connections[socket]);
+
     delete this->connections[socket];
     this->connections.erase(socket);
     for (pollfd& cs : this->sockets) {
@@ -107,6 +114,9 @@ void HttpProxy::closeConnection(int socket) {
             break;
         }
     }
+//    for (auto listener : socket_listeners) {
+//        this->closeConnection(listener->socket);
+//    }
 }
 
 void HttpProxy::stop() {
@@ -175,7 +185,7 @@ void HttpProxy::handleIncomingConnection() {
 
 void HttpProxy::handleIncomingData(pollfd event) {
     char buf[BUF_SIZE] = {0};
-    ssize_t bytes_read = read(event.fd, buf, BUF_SIZE);
+    ssize_t bytes_read = recv(event.fd, buf, BUF_SIZE, MSG_DONTWAIT);
     if (bytes_read > 0) {
         Connection *con = this->connections[event.fd];
         con->parser->read(std::string(buf, bytes_read));
@@ -213,7 +223,6 @@ void HttpProxy::handleIncomingData(pollfd event) {
                 this->closeConnection(con->socket);
             }
         }
-
     } else {
         this->closeConnection(event.fd);
     }
@@ -222,17 +231,37 @@ void HttpProxy::handleIncomingData(pollfd event) {
 void HttpProxy::handleOutgoingData(pollfd event) {
     if (this->connections.count(event.fd)) {
         Connection *clientConnection = this->connections[event.fd];
+
+        int32_t last_error;
+        socklen_t optsize = 4;
+        getsockopt(event.fd, SOL_SOCKET, SO_ERROR, &last_error, &optsize);
+
+        if (last_error != 0) {
+            // WE GOT ERROR
+            auto connection_listeners = this->getListeners(clientConnection);
+            // https://programmerah.com/linux-getsockopt-so_error-values-errno-h-10319/
+            int http_code = last_error == ETIMEDOUT ? 504 : 502;
+            for (auto l: connection_listeners) {
+                l->res = this->proxy_responses[http_code];
+                l->setStatus(Connection::READY_TO_SEND);
+                this->removeListener(clientConnection, l);
+            }
+
+            this->closeConnection(event.fd);
+            return;
+        }
+
         if (clientConnection->getStatus() == Connection::READY_TO_SEND) {
             if (clientConnection->getType() == Connection::CLIENT) {
                 std::string req = clientConnection->req->toString();
                 printf("%s\n", clientConnection->req->path.c_str());
-                ssize_t bytes_sent = write(clientConnection->socket, req.c_str(), req.size());
+                ssize_t bytes_sent = send(clientConnection->socket, req.c_str(), req.size(), MSG_DONTWAIT);
                 if (bytes_sent >= (long) req.size()) {
                     clientConnection->setStatus(Connection::READY_TO_RECV);
                 }
             } else if (clientConnection->getType() == Connection::SERVER) {
                 std::string res = clientConnection->res->toString();
-                ssize_t bytes_sent = write(clientConnection->socket, res.c_str(), res.size());
+                ssize_t bytes_sent = send(clientConnection->socket, res.c_str(), res.size(), MSG_DONTWAIT);
                 if (bytes_sent >= (long) res.size()) {
                     if (this->listeners.count(clientConnection->observable)) {
                         if (this->listeners[clientConnection->observable].size() == 1) {
@@ -267,6 +296,7 @@ HttpProxy::~HttpProxy() {
         shutdown(connection->socket, SHUT_RDWR);
         close(connection->socket);
     }
+    this->cleanupProxyResponses();
 }
 
 void HttpProxy::makeHTTPRequest(Connection *clientConnection) {
@@ -290,8 +320,18 @@ void HttpProxy::makeHTTPRequest(Connection *clientConnection) {
 
     // CONNECT TO HOST
     int con = socket(AF_INET, SOCK_STREAM, 0);
+    fcntl(con, F_SETFL, O_NONBLOCK);
+//    int synRetries = 2;
+//    setsockopt(con, IPPROTO_TCP, TCP_SYNCNT, &synRetries, sizeof(synRetries));
+//    struct timeval timeout;
+//    timeout.tv_sec = 60;
+//    timeout.tv_usec = 0;
+//    setsockopt(con, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
+//    setsockopt(con, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+
+    // https://stackoverflow.com/questions/4181784/how-to-set-socket-timeout-in-c-when-making-multiple-connections
     int flag = connect(con, (sockaddr*)addr, sizeof(*addr));
-    if (flag) {
+    if (flag < 0 && errno != EINPROGRESS) {
         perror("Connect to host");
     }
 
@@ -328,4 +368,30 @@ void HttpProxy::removeListener(Connection *observable, Connection *observer) {
 
 std::vector<Connection *> HttpProxy::getListeners(Connection *observable) {
     return this->listeners[observable];
+}
+
+void HttpProxy::prepareProxyResponses() {
+    auto* res = new HTTPResponse();
+    res->statusCode = 504;
+    res->statusText = "Gateway Timeout";
+    res->inCache = true;
+    res->version = "HTTP/1.1";
+    res->data = "<h1>504 Gateway Timeout</h1>";
+    res->addHeader("Content-length", std::to_string(res->data.length()));
+    this->proxy_responses[504] = res;
+
+    res = new HTTPResponse();
+    res->statusCode = 502;
+    res->statusText = "Bad Gateway";
+    res->inCache = true;
+    res->version = "HTTP/1.1";
+    res->data = "<h1>502 Bad Gateway</h1>";
+    res->addHeader("Content-length", std::to_string(res->data.length()));
+    this->proxy_responses[502] = res;
+}
+
+void HttpProxy::cleanupProxyResponses() {
+    for(auto const& [http_code, response] : this->proxy_responses) {
+        delete response;
+    }
 }
