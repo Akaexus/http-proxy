@@ -18,11 +18,12 @@
 
 class HttpProxy {
     public:
-        HttpProxy(unsigned int address, int port);
+        HttpProxy(unsigned int address, int port, int verbose_level);
         ~HttpProxy();
         void run();
         void stop();
         int loop = true;
+        int verbosity;
         // HTTP Response cache
         struct cacheEntry {
             HTTPResponse* res;
@@ -33,7 +34,7 @@ class HttpProxy {
         };
         std::vector<cacheEntry> cache;
         HTTPResponse* queryCache(HTTPRequest* req);
-        void addToCache(HTTPResponse* res, std::string path, int age);
+        void addToCache(HTTPResponse* res, std::string path, long age);
 
 
 protected:

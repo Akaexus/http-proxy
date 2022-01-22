@@ -53,3 +53,13 @@ HTTP::~HTTP() {
         delete header;
     }
 }
+
+void HTTP::removeHeader(const std::string header) {
+    for (auto it = this->headers.begin(); it != headers.end();) {
+        if (HTTP::tolower(header) == HTTP::tolower((*it)->header)) {
+            this->headers.erase(it);
+        } else {
+            it++;
+        }
+    }
+}

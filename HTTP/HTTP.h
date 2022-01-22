@@ -11,6 +11,7 @@ class HTTP {
     public:
         std::vector<Header*> headers;
         void addHeader(const std::string header, const std::string value);
+        void removeHeader(const std::string header);
         Header* getHeader(std::string headerName);
         virtual std::string toString() = 0;
         virtual ~HTTP();

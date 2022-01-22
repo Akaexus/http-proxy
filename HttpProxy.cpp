@@ -17,7 +17,15 @@
 #include <sys/types.h>
 #include <chrono>
 #include <utility>
-
+#include <sstream>
+#include <iomanip>
+#include <stdio.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <sys/signal.h>
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <netinet/tcp.h>
 
 HttpProxy::cacheEntry::cacheEntry(HTTPResponse* r, std::string p, long e) {
     this->res = r;
@@ -29,7 +37,8 @@ HttpProxy::cacheEntry::~cacheEntry() {
     delete this->res;
 }
 
-HttpProxy::HttpProxy(unsigned int bind_address, int port) {
+HttpProxy::HttpProxy(unsigned int bind_address, int port, int verbose_level) {
+    this->verbosity = verbose_level;
     this->prepareMainSocket(bind_address, port);
     this->prepareSignalHandling();
     this->prepareProxyResponses();
@@ -88,7 +97,9 @@ void HttpProxy::registerNewConnection(int pollSlot) {
     );
     char addr[255] = {0};
     inet_ntop(AF_INET, &client.sin_addr, addr, sizeof(addr));
-    printf("Accepted new connection from %s:%d at poll slot %d, socket %d!\n", addr, ntohs(client.sin_port), pollSlot, con);
+    if(this->verbosity) {
+        printf("Accepted new connection from %s:%d at poll slot %d, socket %d!\n", addr, ntohs(client.sin_port), pollSlot, con);
+    }
 }
 
 HTTPResponse* HttpProxy::queryCache(HTTPRequest *req) {
@@ -108,7 +119,9 @@ HTTPResponse* HttpProxy::queryCache(HTTPRequest *req) {
 }
 
 void HttpProxy::closeConnection(int socket) {
-    printf("Closing connection at socket %d\n", socket);
+    if (this->verbosity) {
+        printf("Closing connection at socket %d\n", socket);
+    }
 
 //    auto socket_listeners = this->getListeners(this->connections[socket]);
 
@@ -194,8 +207,8 @@ void HttpProxy::handleIncomingConnection() {
 void HttpProxy::handleIncomingData(pollfd event) {
     char buf[BUF_SIZE] = {0};
     ssize_t bytes_read = recv(event.fd, buf, BUF_SIZE, MSG_DONTWAIT);
+    Connection *con = this->connections[event.fd];
     if (bytes_read > 0) {
-        Connection *con = this->connections[event.fd];
         con->parser->read(std::string(buf, bytes_read));
         // handle next addr request
         if (con->getType() == Connection::SERVER) {
@@ -206,6 +219,10 @@ void HttpProxy::handleIncomingData(pollfd event) {
                 }
                 con->req = (HTTPRequest *)con->parser->entitiesToHandle[0];
                 con->parser->entitiesToHandle.erase(con->parser->entitiesToHandle.begin()); // TODO: use something faster
+
+                if(this->verbosity) {
+                    printf("%s %s\n", con->req->method.c_str(), con->req->path.c_str());
+                }
 
                 auto res = queryCache(con->req);
                 if (res == nullptr) {
@@ -271,6 +288,7 @@ void HttpProxy::handleOutgoingData(pollfd event) {
                 }
             } else if (clientConnection->getType() == Connection::SERVER) {
                 std::string res = clientConnection->res->toString();
+
                 ssize_t bytes_sent = send(clientConnection->socket, res.c_str(), res.size(), MSG_DONTWAIT);
                 if (bytes_sent >= (long) res.size()) {
                     if (this->listeners.count(clientConnection->observable)) {
@@ -424,7 +442,7 @@ void HttpProxy::cacheIfCan(HTTPResponse* res, HTTPRequest* req) {
         for (auto directive : directives) {
             HTTP::trim(directive);
             if (directive.rfind("smax-age", 0) == 0) {
-                    int age;
+                    long age;
                     try {
                         age = std::stoi(header.substr(1 + header.find('=')));
                     } catch (const std::invalid_argument& e) {
@@ -435,7 +453,7 @@ void HttpProxy::cacheIfCan(HTTPResponse* res, HTTPRequest* req) {
                     }
                     this->addToCache(res, req->path, age);
             } else if (directive.rfind("max-age", 0) == 0) {
-                int age;
+                long age;
                 try {
                     age = std::stoi(header.substr(1 + header.find('=')));
                 } catch (const std::invalid_argument& e) {
@@ -449,11 +467,26 @@ void HttpProxy::cacheIfCan(HTTPResponse* res, HTTPRequest* req) {
                 return;
             }
         }
+    } else if (res->getHeader("Expires") != nullptr) {
+        auto header =  res->getHeader("Expires")->value;
+        long age;
+        try {
+            age = std::stoi(header.substr(1 + header.find('=')));
+        } catch (const std::invalid_argument& e) {
+            std::tm tm = {};
+            std::stringstream ss(header);
+            ss >> std::get_time(&tm, "%a, %d %b %Y %H:%M:%S GMT");
+            auto expires = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::from_time_t(std::mktime(&tm)).time_since_epoch()).count();
+            age = expires - time(nullptr);
+        }
+        if (age > 0) {
+            this->addToCache(res, req->path, age);
+        }
     }
 }
 
-void HttpProxy::addToCache(HTTPResponse *res, std::string path, int age) {
+void HttpProxy::addToCache(HTTPResponse *res, std::string path, long age) {
     res->inCache = true;
-    int expireAt = time(nullptr) + age;
+    long expireAt = age + time(nullptr);
     this->cache.emplace_back(res, std::move(path), expireAt);
 }
