@@ -20,6 +20,7 @@ class HTTP {
         std::string body;
 //    protected:
         static std::string tolower(std::string in);
+        static std::string trim(std::string &str);
 };
 
 

@@ -41,6 +41,13 @@ std::string HTTP::tolower(std::string in) {
     return in;
 }
 
+std::string HTTP::trim(std::string& str)
+{
+    str.erase(str.find_last_not_of(' ')+1);         //suffixing spaces
+    str.erase(0, str.find_first_not_of(' '));       //prefixing spaces
+    return str;
+}
+
 HTTP::~HTTP() {
     for (auto header : this->headers) {
         delete header;

@@ -15,7 +15,8 @@
 #include "URI/URI.h"
 #include <error.h>
 #include <sys/types.h>
-
+#include <chrono>
+#include <utility>
 
 
 HttpProxy::cacheEntry::cacheEntry(HTTPResponse* r, std::string p, long e) {
@@ -40,7 +41,6 @@ void HttpProxy::run() {
         if (poller < 0) {
             perror("Cannot poll");
         }
-
         for (pollfd &event: this->sockets) {
             if (event.fd == this->main_socket && event.revents & POLLIN) {
                 this->handleIncomingConnection();
@@ -92,6 +92,13 @@ void HttpProxy::registerNewConnection(int pollSlot) {
 }
 
 HTTPResponse* HttpProxy::queryCache(HTTPRequest *req) {
+    for (auto it = this->cache.begin(); it != this->cache.end();) {
+        if (it->expireAt < time(nullptr)) {
+            this->cache.erase(it);
+        } else {
+            it++;
+        }
+    }
     for (cacheEntry& e : this->cache) {
         if (req->path == e.path) {
             return e.res;
@@ -210,8 +217,11 @@ void HttpProxy::handleIncomingData(pollfd event) {
             }
         } else if (con->getType() == Connection::CLIENT) { // GOT DATA FROM HOST
             if (!con->parser->entitiesToHandle.empty()) {
-                delete con->res;
+                if (con->res != nullptr && !con->res->inCache) {
+                    delete con->res;
+                }
                 con->res = (HTTPResponse*)con->parser->entitiesToHandle[0];
+                this->cacheIfCan(con->res, con->req);
                 con->parser->entitiesToHandle.erase(con->parser->entitiesToHandle.begin()); // TODO: use something faster
                 auto l = this->getListeners(con);
                 for (auto clientConnection : l) {
@@ -254,7 +264,6 @@ void HttpProxy::handleOutgoingData(pollfd event) {
         if (clientConnection->getStatus() == Connection::READY_TO_SEND) {
             if (clientConnection->getType() == Connection::CLIENT) {
                 std::string req = clientConnection->req->toString();
-                printf("%s\n", clientConnection->req->path.c_str());
                 ssize_t bytes_sent = send(clientConnection->socket, req.c_str(), req.size(), MSG_DONTWAIT);
                 if (bytes_sent >= (long) req.size()) {
                     clientConnection->setStatus(Connection::READY_TO_RECV);
@@ -266,7 +275,9 @@ void HttpProxy::handleOutgoingData(pollfd event) {
                     if (this->listeners.count(clientConnection->observable)) {
                         if (this->listeners[clientConnection->observable].size() == 1) {
                             this->removeListener(clientConnection->observable, clientConnection);
-                            delete clientConnection->res;
+                            if (!clientConnection->res->inCache) {
+                                delete clientConnection->res;
+                            }
                             clientConnection->res = nullptr;
                         } else {
                             this->removeListener(clientConnection->observable, clientConnection);
@@ -394,4 +405,54 @@ void HttpProxy::cleanupProxyResponses() {
     for(auto const& [http_code, response] : this->proxy_responses) {
         delete response;
     }
+}
+
+void HttpProxy::cacheIfCan(HTTPResponse* res, HTTPRequest* req) {
+    if (res->getHeader("Cache-Control") != nullptr) {
+        std::string header = HTTP::tolower(res->getHeader("Cache-Control")->value);
+        std::vector<std::string> directives;
+        std::string delimiter = ",";
+        size_t pos = 0;
+        std::string token;
+        while ((pos = header.find(delimiter)) != std::string::npos) {
+            token = header.substr(0, pos);
+            directives.push_back(token);
+            header.erase(0, pos + delimiter.length());
+        }
+        directives.push_back(header);
+        for (auto directive : directives) {
+            HTTP::trim(directive);
+            if (directive.rfind("smax-age", 0) == 0) {
+                    int age;
+                    try {
+                        age = std::stoi(header.substr(1 + header.find('=')));
+                    } catch (const std::invalid_argument& e) {
+                        return;
+                    }
+                    if (age <= 0) {
+                        return;
+                    }
+                    this->addToCache(res, req->path, age);
+            } else if (directive.rfind("max-age", 0) == 0) {
+                int age;
+                try {
+                    age = std::stoi(header.substr(1 + header.find('=')));
+                } catch (const std::invalid_argument& e) {
+                    return;
+                }
+                if (age <= 0) {
+                    return;
+                }
+                this->addToCache(res, req->path, age);
+            } else if (directive == "no-cache" || directive == "no-store" || directive == "private") {
+                return;
+            }
+        }
+    }
+}
+
+void HttpProxy::addToCache(HTTPResponse *res, std::string path, int age) {
+    res->inCache = true;
+    int expireAt = time(nullptr) + age;
+    this->cache.emplace_back(res, std::move(path), expireAt);
 }

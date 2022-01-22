@@ -33,6 +33,7 @@ class HttpProxy {
         };
         std::vector<cacheEntry> cache;
         HTTPResponse* queryCache(HTTPRequest* req);
+        void addToCache(HTTPResponse* res, std::string path, int age);
 
 
 protected:
@@ -64,6 +65,7 @@ protected:
     void closeConnection(int socket);
 
     void makeHTTPRequest(Connection *pConnection);
+    void cacheIfCan(HTTPResponse* res, HTTPRequest* req);
 };
 
 
