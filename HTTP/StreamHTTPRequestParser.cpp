@@ -1,4 +1,3 @@
-#include <cstdio>
 #include "StreamHTTPRequestParser.h"
 
 
@@ -10,6 +9,16 @@ HTTPRequest* StreamHTTPRequestParser::read(const std::string string) {
         buf.erase(0, 1);
         // HTTP METHOD
         if (!this->gotMethod && current == ' ') {
+            bool valid = false;
+            for (auto& m : HTTP::methods) {
+                if (m == tokenBuf) {
+                    valid = true;
+                    break;
+                }
+            }
+            if (!valid) {
+                throw std::runtime_error("Invalid HTTP method!");
+            }
             this->req->method = tokenBuf;
             tokenBuf = "";
             this->gotMethod = true;
@@ -54,6 +63,26 @@ HTTPRequest* StreamHTTPRequestParser::read(const std::string string) {
             }
             return this->produceRequest();
         } else {
+            if (!this->gotMethod) {
+                if (tokenBuf.size() > 7 || current == '\n') {
+                    throw std::runtime_error("Bad HTTP method");
+                }
+            }
+            if (this->gotMethod && !this->gotPath) {
+                if (tokenBuf.size() > MAX_URI_LENGTH) {
+                    throw std::runtime_error("Request URI too long");
+                }
+            }
+            if (this->gotPath && !this->gotHTTPVersion) {
+                if (tokenBuf.size() > 8) {
+                    throw std::runtime_error("Invalid http method");
+                }
+            }
+            if (this->gotHTTPVersion && !this->gotAllHeaders) {
+                if (tokenBuf.size() > MAX_HEADER_LENGTH) {
+                    throw std::runtime_error("Header too long");
+                }
+            }
             tokenBuf += current;
         }
     }

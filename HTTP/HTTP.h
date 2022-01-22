@@ -10,15 +10,25 @@
 class HTTP {
     public:
         std::vector<Header*> headers;
-        void addHeader(const std::string header, const std::string value);
-        void removeHeader(const std::string header);
+        void addHeader(std::string header, std::string value);
+        void removeHeader(std::string header);
         Header* getHeader(std::string headerName);
         virtual std::string toString() = 0;
         virtual ~HTTP();
     unsigned long contentLength();
         std::string data;
         std::string version;
-        std::string body;
+        static const inline std::string methods[] = {
+                "GET",
+                "HEAD",
+                "POST",
+                "PUT",
+                "DELETE",
+                "CONNECT",
+                "OPTIONS",
+                "TRACE",
+                "PATCH",
+        };
 //    protected:
         static std::string tolower(std::string in);
         static std::string trim(std::string &str);

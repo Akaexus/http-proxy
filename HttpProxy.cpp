@@ -19,10 +19,10 @@
 #include <utility>
 #include <sstream>
 #include <iomanip>
-#include <stdio.h>
+#include <cstdio>
 #include <sys/types.h>
 #include <sys/socket.h>
-#include <sys/signal.h>
+#include <csignal>
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
@@ -209,7 +209,13 @@ void HttpProxy::handleIncomingData(pollfd event) {
     ssize_t bytes_read = recv(event.fd, buf, BUF_SIZE, MSG_DONTWAIT);
     Connection *con = this->connections[event.fd];
     if (bytes_read > 0) {
-        con->parser->read(std::string(buf, bytes_read));
+        try {
+            con->parser->read(std::string(buf, bytes_read));
+        } catch (const std::runtime_error& e) {
+            con->res = this->proxy_responses[400];
+            con->setStatus(Connection::READY_TO_SEND);
+            return;
+        }
         // handle next addr request
         if (con->getType() == Connection::SERVER) {
 
@@ -226,8 +232,8 @@ void HttpProxy::handleIncomingData(pollfd event) {
 
                 auto res = queryCache(con->req);
                 if (res == nullptr) {
-                    this->makeHTTPRequest(con);
                     con->setStatus(Connection::WAITING);
+                    this->makeHTTPRequest(con);
                 } else {
                     con->res = res;
                     con->setStatus(Connection::READY_TO_SEND);
@@ -340,12 +346,12 @@ void HttpProxy::makeHTTPRequest(Connection *clientConnection) {
     addrinfo *resolved;
 
     int res = getaddrinfo(uri.Host.c_str(), uri.Port.c_str(), &hints, &resolved);
-    if(res) {
-        error(1,0,"Getaddrinfo failed: %s\n", gai_strerror(res));
+    if(res || !resolved) {
+        clientConnection->res = this->proxy_responses[504];
+        clientConnection->setStatus(Connection::READY_TO_SEND);
+        return;
     }
-    if(!resolved) {
-        error(1,0,"Empty result\n");
-    }
+
     auto* addr = (sockaddr_in*) resolved->ai_addr; // <- rzutowanie bezpieczne,
 
     // CONNECT TO HOST
@@ -401,23 +407,24 @@ std::vector<Connection *> HttpProxy::getListeners(Connection *observable) {
 }
 
 void HttpProxy::prepareProxyResponses() {
-    auto* res = new HTTPResponse();
-    res->statusCode = 504;
-    res->statusText = "Gateway Timeout";
-    res->inCache = true;
-    res->version = "HTTP/1.1";
-    res->data = "<h1>504 Gateway Timeout</h1>";
-    res->addHeader("Content-length", std::to_string(res->data.length()));
-    this->proxy_responses[504] = res;
-
-    res = new HTTPResponse();
-    res->statusCode = 502;
-    res->statusText = "Bad Gateway";
-    res->inCache = true;
-    res->version = "HTTP/1.1";
-    res->data = "<h1>502 Bad Gateway</h1>";
-    res->addHeader("Content-length", std::to_string(res->data.length()));
-    this->proxy_responses[502] = res;
+    std::map<int, std::string> responses = {
+            {400, "Bad Request"},
+            {504, "Gateway Timeout"},
+            {502, "Bad Gateway"},
+            {505, "HTTP Version Not Supported"},
+    };
+    for (auto const& [code, message] : responses) {
+        auto* res = new HTTPResponse();
+        res->statusCode = code;
+        res->statusText = message;
+        res->inCache = true;
+        res->version = "HTTP/1.1";
+        std::stringstream ss;
+        ss << "<h1>" << code << " " << message << "</h1>";
+        res->data = ss.str();
+        res->addHeader("Content-length", std::to_string(res->data.length()));
+        this->proxy_responses[code] = res;
+    }
 }
 
 void HttpProxy::cleanupProxyResponses() {

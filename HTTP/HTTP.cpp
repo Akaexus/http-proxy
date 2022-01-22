@@ -3,6 +3,7 @@
 #include <iostream>
 #include "HTTP.h"
 
+
 void HTTP::addHeader(const std::string header, const std::string value) {
     auto *h = new Header(header, value);
     this->headers.push_back(h);

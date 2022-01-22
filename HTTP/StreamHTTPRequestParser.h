@@ -6,6 +6,9 @@
 #include "HTTPRequest.h"
 #include "Parser.h"
 
+#define MAX_URI_LENGTH 2048
+#define MAX_HEADER_LENGTH 8192
+
 class StreamHTTPRequestParser : public Parser {
     public:
         StreamHTTPRequestParser();
