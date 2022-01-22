@@ -167,6 +167,7 @@ void HttpProxy::prepareMainSocket(unsigned int bind_address, int port) {
 
     if (bind_flag < 0) {
         perror("Cannot bind to the socket");
+        exit(1);
     }
 
     int listen_flag = listen(this->main_socket, 16);
