@@ -207,7 +207,20 @@ void HttpProxy::handleIncomingConnection() {
 void HttpProxy::handleIncomingData(pollfd event) {
     char buf[BUF_SIZE] = {0};
     ssize_t bytes_read = recv(event.fd, buf, BUF_SIZE, MSG_DONTWAIT);
+    int32_t last_error;
+    socklen_t optsize = 4;
+    getsockopt(event.fd, SOL_SOCKET, SO_ERROR, &last_error, &optsize);
     Connection *con = this->connections[event.fd];
+    if (last_error != 0) {
+        if (this->listeners.count(con->observable)) {
+            for (auto listener : this->listeners[con->observable]) {
+                listener->res = this->proxy_responses[502];
+                listener->setStatus(Connection::READY_TO_SEND);
+            }
+        }
+        this->closeConnection(event.fd);
+    }
+
     if (bytes_read > 0) {
         try {
             con->parser->read(std::string(buf, bytes_read));
@@ -289,6 +302,16 @@ void HttpProxy::handleOutgoingData(pollfd event) {
             if (clientConnection->getType() == Connection::CLIENT) {
                 std::string req = clientConnection->req->toString();
                 ssize_t bytes_sent = send(clientConnection->socket, req.c_str(), req.size(), MSG_DONTWAIT);
+                getsockopt(event.fd, SOL_SOCKET, SO_ERROR, &last_error, &optsize);
+                if (last_error != 0) {
+                    if (this->listeners.count(clientConnection->observable)) {
+                        for (auto listener : this->listeners[clientConnection->observable]) {
+                            listener->res = this->proxy_responses[502];
+                            listener->setStatus(Connection::READY_TO_SEND);
+                        }
+                    }
+                    this->closeConnection(event.fd);
+                }
                 if (bytes_sent >= (long) req.size()) {
                     clientConnection->setStatus(Connection::READY_TO_RECV);
                 }
@@ -296,6 +319,10 @@ void HttpProxy::handleOutgoingData(pollfd event) {
                 std::string res = clientConnection->res->toString();
 
                 ssize_t bytes_sent = send(clientConnection->socket, res.c_str(), res.size(), MSG_DONTWAIT);
+                getsockopt(event.fd, SOL_SOCKET, SO_ERROR, &last_error, &optsize);
+                if (last_error != 0) {
+                    this->closeConnection(event.fd);
+                }
                 if (bytes_sent >= (long) res.size()) {
                     if (this->listeners.count(clientConnection->observable)) {
                         if (this->listeners[clientConnection->observable].size() == 1) {
