@@ -67,6 +67,8 @@ protected:
 
     void makeHTTPRequest(Connection *pConnection);
     void cacheIfCan(HTTPResponse* res, HTTPRequest* req);
+
+    static long stringToEpoch(std::string t);
 };
 
 

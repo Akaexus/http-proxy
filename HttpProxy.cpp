@@ -254,6 +254,12 @@ void HttpProxy::handleIncomingData(pollfd event) {
                         } else {
                             con->res = res;
                         }
+                    } else if (con->req->getHeader("If-Modified-Since")) {
+                        if (HttpProxy::stringToEpoch(con->req->getHeader("If-Modified-Since")->value) > HttpProxy::stringToEpoch(res->getHeader("Last-Modified")->value)) {
+                            con->res = this->proxy_responses[302];
+                        } else {
+                            con->res = res;
+                        }
                     } else {
                         con->res = res;
                     }
@@ -266,6 +272,13 @@ void HttpProxy::handleIncomingData(pollfd event) {
                     delete con->res;
                 }
                 con->res = (HTTPResponse*)con->parser->entitiesToHandle[0];
+                if (!con->res->getHeader("Last-Modified")) {
+                    auto now = std::chrono::system_clock::now();
+                    auto in_time_t = std::chrono::system_clock::to_time_t(now);
+                    std::stringstream ss;
+                    ss << std::put_time(std::gmtime(&in_time_t), "%a, %d %b %Y %H:%M:%S GMT");
+                    con->res->addHeader("Last-Modified", ss.str());
+                }
                 this->cacheIfCan(con->res, con->req);
                 con->parser->entitiesToHandle.erase(con->parser->entitiesToHandle.begin()); // TODO: use something faster
                 auto l = this->getListeners(con);
@@ -519,11 +532,7 @@ void HttpProxy::cacheIfCan(HTTPResponse* res, HTTPRequest* req) {
         try {
             age = std::stoi(header.substr(1 + header.find('=')));
         } catch (const std::invalid_argument& e) {
-            std::tm tm = {};
-            std::stringstream ss(header);
-            ss >> std::get_time(&tm, "%a, %d %b %Y %H:%M:%S GMT");
-            auto expires = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::from_time_t(std::mktime(&tm)).time_since_epoch()).count();
-            age = expires - time(nullptr);
+            age = HttpProxy::stringToEpoch(header) - time(nullptr);
         }
         if (age > 0) {
             this->addToCache(res, req->path, age);
@@ -535,4 +544,11 @@ void HttpProxy::addToCache(HTTPResponse *res, std::string path, long age) {
     res->inCache = true;
     long expireAt = age + time(nullptr);
     this->cache.emplace_back(res, std::move(path), expireAt);
+}
+
+long HttpProxy::stringToEpoch(std::string t) {
+    std::tm tm = {};
+    std::stringstream ss(t);
+    ss >> std::get_time(&tm, "%a, %d %b %Y %H:%M:%S GMT");
+    return std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::from_time_t(std::mktime(&tm)).time_since_epoch()).count();
 }
