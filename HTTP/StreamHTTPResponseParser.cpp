@@ -19,7 +19,7 @@ HTTPResponse *StreamHTTPResponseParser::read(std::string string) {
             this->gotHTTPVersion = true;
             tokenBuf = "";
         } else if (this->gotHTTPVersion && !this->gotStatusCode && !tokenBuf.empty() && current == ' ') {
-            this->res->statusCode = atoi(tokenBuf.c_str());
+            this->res->statusCode = strtol(tokenBuf.c_str(), nullptr, 10);
             this->gotStatusCode = true;
             tokenBuf = "";
         } else if (this->gotStatusCode && !this->gotStatusText && !tokenBuf.empty() && tokenBuf.back() == '\r' && current == '\n') {
@@ -75,7 +75,6 @@ HTTPResponse* StreamHTTPResponseParser::produceRequest() {
     this->gotStatusText = false;
     this->gotAllHeaders = false;
     this->containsBody = false;
-    this->gotBody = false;
     this->contentLength = 0;
     return response;
 }

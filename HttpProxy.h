@@ -38,10 +38,10 @@ class HttpProxy {
 
 
 protected:
-    int main_socket;
-    int sfd; // signal file descriptor
-    struct sockaddr_in listen_address;
-    pollfd sockets[MAX_CONNECTIONS];
+    int main_socket{};
+    int sfd{}; // signal file descriptor
+    struct sockaddr_in listen_address{};
+    pollfd sockets[MAX_CONNECTIONS]{};
     std::map<int, Connection*> connections;
     std::map<int, HTTPResponse*> proxy_responses;
     // SETUP PROXY
@@ -68,7 +68,7 @@ protected:
     void makeHTTPRequest(Connection *pConnection);
     void cacheIfCan(HTTPResponse* res, HTTPRequest* req);
 
-    static long stringToEpoch(std::string t);
+    static long stringToEpoch(const std::string& t);
 };
 
 

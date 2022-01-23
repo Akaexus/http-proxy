@@ -20,7 +20,6 @@ class StreamHTTPResponseParser : public Parser {
         bool gotStatusText = false;
         bool gotAllHeaders = false;
         bool containsBody = false;
-        bool gotBody = false;
         unsigned long contentLength = 0;
         HTTPResponse* produceRequest();
 };

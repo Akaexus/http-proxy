@@ -103,7 +103,6 @@ HTTPRequest* StreamHTTPRequestParser::produceRequest() {
     this->gotHTTPVersion = false;
     this->gotAllHeaders = false;
     this->containsBody = false;
-    this->gotBody = false;
     this->contentLength = 0;
     return request;
 }

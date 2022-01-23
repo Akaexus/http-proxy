@@ -1,10 +1,8 @@
-#include <algorithm>
-#include <cctype>
 #include <iostream>
 #include "HTTP.h"
 
 
-void HTTP::addHeader(const std::string header, const std::string value) {
+void HTTP::addHeader(const std::string& header, const std::string& value) {
     auto *h = new Header(header, value);
     this->headers.push_back(h);
 }
@@ -55,7 +53,7 @@ HTTP::~HTTP() {
     }
 }
 
-void HTTP::removeHeader(const std::string header) {
+void HTTP::removeHeader(const std::string& header) {
     for (auto it = this->headers.begin(); it != headers.end();) {
         if (HTTP::tolower(header) == HTTP::tolower((*it)->header)) {
             this->headers.erase(it);

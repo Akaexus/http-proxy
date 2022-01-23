@@ -13,19 +13,12 @@
 #include <csignal>
 #include <netdb.h>
 #include "URI/URI.h"
-#include <error.h>
 #include <sys/types.h>
 #include <chrono>
 #include <utility>
 #include <sstream>
 #include <iomanip>
-#include <cstdio>
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <csignal>
-#include <arpa/inet.h>
-#include <netinet/in.h>
-#include <netinet/tcp.h>
+
 
 HttpProxy::cacheEntry::cacheEntry(HTTPResponse* r, std::string p, long e) {
     this->res = r;
@@ -82,7 +75,7 @@ int HttpProxy::getEmptyPollSlot() {
 }
 
 void HttpProxy::registerNewConnection(int pollSlot) {
-    struct sockaddr_in client;
+    struct sockaddr_in client{};
     socklen_t size = sizeof(client);
     int con = accept(this->main_socket, (struct sockaddr *) &client, &size);
     fcntl(con, F_SETFL, O_NONBLOCK);
@@ -149,7 +142,7 @@ void HttpProxy::prepareSignalHandling() {
     sigset_t sigset;
     sigemptyset(&sigset);
     sigaddset(&sigset, SIGTERM);
-    sigprocmask(SIG_SETMASK, &sigset, NULL);
+    sigprocmask(SIG_SETMASK, &sigset, nullptr);
 
     this->sfd = signalfd(-1, &sigset, 0);
 
@@ -233,9 +226,7 @@ void HttpProxy::handleIncomingData(pollfd event) {
         if (con->getType() == Connection::SERVER) {
 
             if (!con->parser->entitiesToHandle.empty() && con->getStatus() == Connection::READY_TO_RECV) {
-                if (con->req != nullptr) {
-                    delete con->req; // delete old request
-                }
+                delete con->req; // delete old request
                 con->req = (HTTPRequest *)con->parser->entitiesToHandle[0];
                 con->parser->entitiesToHandle.erase(con->parser->entitiesToHandle.begin()); // TODO: use something faster
 
@@ -365,7 +356,7 @@ void HttpProxy::handleOutgoingData(pollfd event) {
 }
 
 void HttpProxy::handleSignal(pollfd event) {
-    struct signalfd_siginfo siginfo;
+    struct signalfd_siginfo siginfo{};
     if (read(event.fd, &siginfo, sizeof(siginfo)) != sizeof(siginfo)) {
         printf("Error reading signal!\n");
         return;
@@ -476,7 +467,7 @@ void HttpProxy::prepareProxyResponses() {
     }
     // 302 without body
     this->proxy_responses[302]->data = "";
-    this->proxy_responses[302]->removeHeader("Content-length");
+    this->proxy_responses[302]->getHeader("Content-Length")->value = "0";
 }
 
 void HttpProxy::cleanupProxyResponses() {
@@ -490,7 +481,7 @@ void HttpProxy::cacheIfCan(HTTPResponse* res, HTTPRequest* req) {
         std::string header = HTTP::tolower(res->getHeader("Cache-Control")->value);
         std::vector<std::string> directives;
         std::string delimiter = ",";
-        size_t pos = 0;
+        size_t pos;
         std::string token;
         while ((pos = header.find(delimiter)) != std::string::npos) {
             token = header.substr(0, pos);
@@ -546,7 +537,7 @@ void HttpProxy::addToCache(HTTPResponse *res, std::string path, long age) {
     this->cache.emplace_back(res, std::move(path), expireAt);
 }
 
-long HttpProxy::stringToEpoch(std::string t) {
+long HttpProxy::stringToEpoch(const std::string& t) {
     std::tm tm = {};
     std::stringstream ss(t);
     ss >> std::get_time(&tm, "%a, %d %b %Y %H:%M:%S GMT");
