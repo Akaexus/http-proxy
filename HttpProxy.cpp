@@ -278,7 +278,9 @@ void HttpProxy::handleIncomingData(pollfd event) {
                     clientConnection->observable = con;
                     clientConnection->setStatus(Connection::READY_TO_SEND);
                 }
-                con->res->inCache = true;
+                if (!l.empty()) {
+                    con->res = nullptr;
+                }
                 this->closeConnection(con->socket);
             }
         }
