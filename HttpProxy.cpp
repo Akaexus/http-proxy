@@ -248,7 +248,15 @@ void HttpProxy::handleIncomingData(pollfd event) {
                     con->setStatus(Connection::WAITING);
                     this->makeHTTPRequest(con);
                 } else {
-                    con->res = res;
+                    if (res->getHeader("ETag") && con->req->getHeader("ETag")) {
+                        if (res->getHeader("ETag")->value == con->req->getHeader("ETag")->value) {
+                            con->res = this->proxy_responses[302];
+                        } else {
+                            con->res = res;
+                        }
+                    } else {
+                        con->res = res;
+                    }
                     con->setStatus(Connection::READY_TO_SEND);
                 }
             }
@@ -435,6 +443,7 @@ std::vector<Connection *> HttpProxy::getListeners(Connection *observable) {
 
 void HttpProxy::prepareProxyResponses() {
     std::map<int, std::string> responses = {
+            {302, "Not Modified"},
             {400, "Bad Request"},
             {504, "Gateway Timeout"},
             {502, "Bad Gateway"},
@@ -452,6 +461,9 @@ void HttpProxy::prepareProxyResponses() {
         res->addHeader("Content-length", std::to_string(res->data.length()));
         this->proxy_responses[code] = res;
     }
+    // 302 without body
+    this->proxy_responses[302]->data = "";
+    this->proxy_responses[302]->removeHeader("Content-length");
 }
 
 void HttpProxy::cleanupProxyResponses() {
